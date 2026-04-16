@@ -17,5 +17,5 @@ class HCPResponse(BaseModel):
     organization: str
     location: str
 
-    class Config:
-        orm_mode = True
+    class ConfigDict:
+        from_attributes = True

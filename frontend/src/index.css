@@ -77,6 +77,27 @@ body {
 .border-b { border-bottom: 1px solid var(--border-color); }
 .border-l { border-left: 1px solid var(--border-color); }
 .border-opacity-20 { border-color: rgba(255, 255, 255, 0.05); }
+.relative { position: relative; }
+.absolute { position: absolute; }
+.right-2 { right: 0.5rem; }
+.top-2 { top: 0.5rem; }
+.flex-1 { flex: 1 1 0%; }
+.backdrop-blur-md { backdrop-filter: blur(12px); }
+.transition-all { transition: all 0.3s ease; }
+.transition-colors { transition: color 0.3s ease, background-color 0.3s ease; }
+.bg-white\/5 { background-color: rgba(255, 255, 255, 0.05); }
+.bg-white\/10 { background-color: rgba(255, 255, 255, 0.1); }
+.border-white\/10 { border-color: rgba(255, 255, 255, 0.1); }
+.bg-accent-primary { background-color: var(--accent-primary); }
+.focus\:outline-none:focus { outline: 2px solid transparent; outline-offset: 2px; }
+.focus\:border-accent-primary:focus { border-color: var(--accent-primary); }
+.mt-3 { margin-top: 0.75rem; }
+.text-center { text-align: center; }
+.rounded-xl { border-radius: 0.75rem; }
+.p-3 { padding: 0.75rem; }
+.hover\:bg-cyan-300:hover { background-color: #00bcd4; }
+.disabled\:opacity-50:disabled { opacity: 0.5; }
+.disabled\:cursor-not-allowed:disabled { cursor: not-allowed; }
 
 .glass-panel {
   background: var(--glass-bg);

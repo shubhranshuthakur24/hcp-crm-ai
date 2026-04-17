@@ -7,7 +7,7 @@ const LogInteractionScreen: React.FC = () => {
   return (
     <div className="flex w-full h-full bg-bg-dark overflow-hidden">
       {/* Left Panel: Form */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.6 }}
@@ -17,11 +17,11 @@ const LogInteractionScreen: React.FC = () => {
       </motion.div>
 
       {/* Right Panel: Chat Assistant */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.6, delay: 0.2 }}
-        className="w-[450px]"
+        className=""
       >
         <ChatAssistant />
       </motion.div>

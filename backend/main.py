@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 from .database import SessionLocal, init_db, HCP, Interaction
-from .schemas import ChatRequest, HCPResponse
+from .schemas import ChatRequest, HCPResponse, LogInteractionRequest
 from .agent import agent_app, InteractionState
 from langchain_core.messages import HumanMessage
 
@@ -39,6 +39,35 @@ def get_db():
 @app.get("/hcps", response_model=list[HCPResponse])
 def get_hcps(db: Session = Depends(get_db)):
     return db.query(HCP).all()
+
+@app.post("/log_interaction")
+async def log_interaction_endpoint(request: LogInteractionRequest, db: Session = Depends(get_db)):
+    data = request.data
+    try:
+        # Find HCP ID by name
+        hcp = db.query(HCP).filter(HCP.name == data.get("hcp_name")).first()
+        if not hcp:
+            raise HTTPException(status_code=404, detail="HCP not found in database.")
+
+        new_interaction = Interaction(
+            hcp_id=hcp.id,
+            date=data.get("date"),
+            time=data.get("time"),
+            interaction_type=data.get("interaction_type"),
+            attendees=data.get("attendees"),
+            topics_discussed=data.get("topics_discussed"),
+            materials_shared=data.get("materials_shared"),
+            sentiment=data.get("sentiment", "neutral"),
+            outcomes=data.get("outcomes"),
+            samples_distributed=data.get("samples_distributed"),
+            follow_up_actions=data.get("follow_up_actions")
+        )
+        db.add(new_interaction)
+        db.commit()
+        return {"status": "saved_to_db", "interaction_id": new_interaction.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
 async def chat(request: ChatRequest):

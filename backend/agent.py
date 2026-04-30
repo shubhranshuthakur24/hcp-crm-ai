@@ -12,6 +12,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
 
+from .database import SessionLocal, HCP, Interaction
+
 # --- State Definitions ---
 class InteractionState(BaseModel):
     hcp_name: str = ""
@@ -23,6 +25,9 @@ class InteractionState(BaseModel):
     materials_shared: str = ""
     sentiment: str = "neutral"
     outcomes: str = ""
+    samples_distributed: str = ""
+    follow_up_actions: str = ""
+    suggested_follow_ups: List[str] = []
 
 class AgentState(TypedDict):
     # Use add_messages to ensure history is preserved and appended
@@ -32,15 +37,51 @@ class AgentState(TypedDict):
 # --- Tool Definitions ---
 @tool
 def search_hcp(query: str):
-    """Search for an HCP in the database."""
-    return {"hcp_name": "Dr. Sarah Smith", "specialty": "Cardiology"}
+    """Search for an HCP in the database by name."""
+    db = SessionLocal()
+    hcps = db.query(HCP).filter(HCP.name.ilike(f"%{query}%")).all()
+    db.close()
+    if hcps:
+        if len(hcps) == 1:
+            hcp = hcps[0]
+            return {
+                "hcp_name": hcp.name,
+                "specialty": hcp.specialty,
+                "organization": hcp.organization,
+                "hcp_id": hcp.id
+            }
+        else:
+            return {
+                "matches": [{"name": h.name, "specialty": h.specialty, "org": h.organization, "id": h.id} for h in hcps],
+                "error": "Multiple matches found. Please ask for clarification."
+            }
+    return {"error": "HCP not found"}
 
 @tool
-def edit_interaction(field: str, value: str):
+def edit_interaction(field: str, value: Any):
     """Update a specific field in the interaction state. 
-    Fields: hcp_name, interaction_type, date, time, attendees, topics_discussed, materials_shared, sentiment, outcomes.
+    Valid fields: hcp_name, interaction_type, date, time, attendees, topics_discussed, materials_shared, samples_distributed, sentiment, outcomes, follow_up_actions, suggested_follow_ups.
+    Note: Tool will automatically handle date/time formatting.
     """
-    return {field: value}
+    processed_value = value
+    
+    # Auto-format date if the field is date
+    if field == "date" and isinstance(value, str) and value:
+        try:
+            from dateutil import parser
+            processed_value = parser.parse(value).strftime("%Y-%m-%d")
+        except:
+            pass # Keep original if parsing fails
+            
+    # Auto-format time if the field is time
+    if field == "time" and isinstance(value, str) and value:
+        try:
+            from dateutil import parser
+            processed_value = parser.parse(value).strftime("%H:%M")
+        except:
+            pass
+            
+    return {field: processed_value}
 
 @tool
 def add_materials(material_name: str):
@@ -50,14 +91,81 @@ def add_materials(material_name: str):
 @tool
 def create_followup(task: str, date: str):
     """Schedule a follow-up task or meeting."""
-    return {"outcomes": f"Follow-up: {task} on {date}"}
+    return {"follow_up_actions": f"Task: {task} on {date}"}
 
 @tool
-def log_interaction():
-    """Finalize and save the interaction record."""
-    return {"status": "saved"}
+def get_hcp_insights(hcp_id):
+    """Retrieve past interaction history and insights for a specific HCP. 
+    Use this to understand doctor preferences, past rejections, or recurring topics.
+    Args:
+        hcp_id: The ID of the HCP (integer or string)
+    """
+    db = SessionLocal()
+    try:
+        # Robust conversion to handle string IDs from LLM
+        numeric_id = int(str(hcp_id))
+        past_interactions = db.query(Interaction).filter(Interaction.hcp_id == numeric_id).order_by(Interaction.created_at.desc()).limit(5).all()
+        if not past_interactions:
+            return {"insight": "No past interaction history found for this HCP."}
+        
+        history = []
+        for idx, inter in enumerate(past_interactions):
+            history.append(f"Interaction {idx+1}: Date: {inter.date}, Type: {inter.interaction_type}, Outcomes: {inter.outcomes}, Materials: {inter.materials_shared}")
+        
+        # Example derived insight logic
+        insight_summary = "\n".join(history)
+        return {
+            "past_history": history,
+            "derived_insights": f"Summary of last {len(history)} visits: Focus has been on {past_interactions[0].topics_discussed}. Review past outcomes for price or efficacy concerns."
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        db.close()
 
-tools = [search_hcp, edit_interaction, add_materials, create_followup, log_interaction]
+@tool
+def summarize_interaction(data: dict):
+    """Generate a professional summary of the current interaction to be used as Key Outcomes and Follow-up Actions."""
+    return {
+        "outcomes": f"SUMMARY: {data.get('topics_discussed', '')} discussed.",
+        "follow_up_actions": data.get('follow_up_actions', 'No specific follow-up scheduled yet.')
+    }
+
+@tool
+def log_interaction(data: dict):
+    """Finalize and save the interaction record to the database. 
+    Pass the entire current interaction state as 'data'.
+    """
+    db = SessionLocal()
+    try:
+        # Find HCP ID by name if not already present
+        hcp = db.query(HCP).filter(HCP.name == data.get("hcp_name")).first()
+        if not hcp:
+            return {"error": "Cannot log interaction: HCP not found in database."}
+
+        new_interaction = Interaction(
+            hcp_id=hcp.id,
+            date=data.get("date"),
+            time=data.get("time"),
+            interaction_type=data.get("interaction_type"),
+            attendees=data.get("attendees"),
+            topics_discussed=data.get("topics_discussed"),
+            materials_shared=data.get("materials_shared"),
+            sentiment=data.get("sentiment", "neutral"),
+            outcomes=data.get("outcomes"),
+            samples_distributed=data.get("samples_distributed"),
+            follow_up_actions=data.get("follow_up_actions")
+        )
+        db.add(new_interaction)
+        db.commit()
+        return {"status": "saved_to_db", "interaction_id": new_interaction.id}
+    except Exception as e:
+        db.rollback()
+        return {"error": f"Failed to save: {str(e)}"}
+    finally:
+        db.close()
+
+tools = [search_hcp, get_hcp_insights, edit_interaction, add_materials, create_followup, summarize_interaction, log_interaction]
 tool_node = ToolNode(tools)
 
 # --- LLM Setup ---
@@ -82,11 +190,16 @@ def call_model(state: AgentState):
             break
 
     system_msg = SystemMessage(content=(
-        "You are an AI-First CRM Assistant. Update the form state based on user input.\n\n"
+        "You are an AI-First CRM Assistant. Your goal is to help log an HCP interaction while being context-aware.\n\n"
         f"CURRENT FORM STATE: {interaction.json()}\n\n"
-        "1. Capture information using 'edit_interaction'.\n"
-        "2. If info is already in the 'CURRENT FORM STATE', do NOT call the tool again.\n"
-        "3. Once finished, provide a short summary and STOP."
+        "PROCESS:\n"
+        "1. If an HCP is identified but you don't have their history, use 'get_hcp_insights' to understand their preferences and past behavior.\n"
+        "2. Capture details using 'edit_interaction' and other tools. IMPORTANT: Format dates as YYYY-MM-DD and times as HH:MM AM/PM.\n"
+        "3. For 'sentiment', map the conversation tone to exactly one of: 'positive', 'neutral', or 'negative'.\n"
+        "4. Capture outcomes and specific follow-up actions (next steps, tasks).\n"
+        "5. ALWAYS suggest 2-3 specific 'suggested_follow_ups' based on the conversation (e.g., '+ Schedule follow-up in 2 weeks', '+ Send PDF'). Use the 'edit_interaction' tool to update this field with a LIST of strings.\n"
+        "6. Once the conversation is finishing, use 'summarize_interaction' to create a final report.\n"
+        "7. Provide a concise summary to the user and stop."
     ))
     
     response = llm.bind_tools(tools).invoke([system_msg] + state['messages'])

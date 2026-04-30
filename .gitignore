@@ -22,3 +22,7 @@ dist-ssr/
 # OS
 .DS_Store
 Thumbs.db
+QMS_DOMAIN_GUIDE.md
+ARCHITECTURE.md
+DEMO_GUIDE.md
+docker-compose.yml

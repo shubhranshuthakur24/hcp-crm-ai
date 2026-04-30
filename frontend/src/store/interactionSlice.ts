@@ -11,6 +11,9 @@ export interface InteractionState {
   materials_shared: string;
   sentiment: 'positive' | 'neutral' | 'negative';
   outcomes: string;
+  samples_distributed: string;
+  follow_up_actions: string;
+  suggested_follow_ups: string[];
 }
 
 interface AppState {
@@ -30,6 +33,9 @@ const initialState: AppState = {
     materials_shared: '',
     sentiment: 'neutral',
     outcomes: '',
+    samples_distributed: '',
+    follow_up_actions: '',
+    suggested_follow_ups: [],
   },
   chatHistory: [
     { role: 'assistant', content: 'Hello! I am your AI CRM Assistant. How can I help you log an HCP interaction today?' }

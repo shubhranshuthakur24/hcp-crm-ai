@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { addChatMessage, updateInteraction, setTyping } from '../../store/interactionSlice';
-import { Send, Zap } from 'lucide-react';
+import { Send, Zap, Globe } from 'lucide-react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -33,20 +33,11 @@ const ChatAssistant: React.FC = () => {
         interaction_state: interaction
       });
 
-      const { reply, updated_interaction, tool_calls } = response.data;
-      
+      const { reply, updated_interaction } = response.data;
+
       dispatch(addChatMessage({ role: 'assistant', content: reply }));
       if (updated_interaction) {
         dispatch(updateInteraction(updated_interaction));
-      }
-      
-      // Handle tool-call derived updates manually if tool_calls exist and interaction wasn't updated
-      if (tool_calls && tool_calls.length > 0) {
-        tool_calls.forEach((tc: any) => {
-          if (tc.name === 'edit_interaction') {
-            dispatch(updateInteraction({ [tc.args.field]: tc.args.value }));
-          }
-        });
       }
     } catch (error) {
       dispatch(addChatMessage({ role: 'assistant', content: 'Sorry, I encountered an error connecting to the backend. Please ensure the server is running.' }));
@@ -56,17 +47,16 @@ const ChatAssistant: React.FC = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-white/5 backdrop-blur-md border-l border-white/10">
+    <div className="h-full flex flex-col">
       <div className="p-6 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-accent-primary to-accent-secondary flex items-center justify-center">
-            <Zap size={20} className="text-white" />
+          <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center border border-blue-500/30">
+            <Globe size={20} className="text-blue-400" />
           </div>
           <div>
             <h3 className="font-bold">AI Assistant</h3>
-            <span className="text-xs text-secondary flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-              Online - Gemma 2b-9it
+            <span className="text-[10px] text-secondary uppercase tracking-widest font-bold">
+              Log interaction via chat
             </span>
           </div>
         </div>
@@ -81,11 +71,10 @@ const ChatAssistant: React.FC = () => {
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`max-w-[80%] p-4 rounded-2xl ${
-                msg.role === 'user' 
-                  ? 'bg-accent-primary text-black font-medium rounded-tr-none' 
-                  : 'bg-white/10 text-primary border border-white/10 rounded-tl-none'
-              }`}>
+              <div className={`max-w-[85%] p-4 rounded-2xl ${msg.role === 'user'
+                ? 'bg-white text-black font-medium rounded-tr-none shadow-lg'
+                : 'bg-white/5 text-primary border border-white/10 rounded-tl-none'
+                }`}>
                 {msg.content}
               </div>
             </motion.div>
@@ -96,7 +85,7 @@ const ChatAssistant: React.FC = () => {
               animate={{ opacity: 1 }}
               className="flex justify-start"
             >
-              <div className="bg-white/10 p-4 rounded-2xl rounded-tl-none flex gap-1">
+              <div className="bg-white/5 p-4 rounded-2xl rounded-tl-none flex gap-1">
                 <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce"></span>
                 <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce [animation-delay:0.2s]"></span>
                 <span className="w-1.5 h-1.5 bg-white/50 rounded-full animate-bounce [animation-delay:0.4s]"></span>
@@ -107,26 +96,23 @@ const ChatAssistant: React.FC = () => {
       </div>
 
       <div className="p-6">
-        <div className="relative">
+        <div className="flex items-center gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Tell me about your interaction..."
-            className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-6 pr-14 focus:outline-none focus:border-accent-primary transition-all text-sm"
+            placeholder="Describe interaction..."
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl py-3 px-4 focus:outline-none focus:border-white/30 transition-all text-sm text-white"
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="absolute right-2 top-2 p-3 bg-accent-primary text-black rounded-xl hover:bg-cyan-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-zinc-600 text-white rounded-xl hover:bg-zinc-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-bold text-sm"
           >
-            <Send size={18} />
+            <Send size={16} /> Log
           </button>
         </div>
-        <p className="text-xs text-center mt-3 text-secondary uppercase tracking-tighter">
-          Input fields on the left are driven by conversation.
-        </p>
       </div>
     </div>
   );

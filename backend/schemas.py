@@ -6,9 +6,8 @@ class ChatRequest(BaseModel):
     thread_id: str
     interaction_state: Optional[dict] = None
 
-class InteractionUpdate(BaseModel):
-    field: str
-    value: str
+class LogInteractionRequest(BaseModel):
+    data: dict
 
 class HCPResponse(BaseModel):
     id: int

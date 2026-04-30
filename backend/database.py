@@ -5,10 +5,10 @@ from sqlalchemy.orm import sessionmaker
 import datetime
 import enum
 
-# For demonstration, using SQLite. In production, this would be a Postgres URL.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./hcp_crm.db")
+# In production, this would be a Postgres URL from environment variables.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/hcp_crm")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -37,6 +37,8 @@ class Interaction(Base):
     materials_shared = Column(Text)
     sentiment = Column(String, default="neutral")
     outcomes = Column(Text)
+    samples_distributed = Column(Text)
+    follow_up_actions = Column(Text)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 def init_db():

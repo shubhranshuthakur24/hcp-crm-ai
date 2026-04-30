@@ -5,23 +5,23 @@ import { motion } from 'framer-motion';
 
 const LogInteractionScreen: React.FC = () => {
   return (
-    <div className="flex w-full h-full bg-bg-dark overflow-hidden">
-      {/* Left Panel: Form */}
+    <div className="flex w-full h-full bg-bg-dark overflow-hidden p-6 gap-6">
+      {/* Left Card: Form (2/3 width) */}
       <motion.div
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.6 }}
-        className="flex-1 min-w-[500px]"
+        className="flex-2 glass-panel overflow-hidden flex flex-col"
       >
         <StructuredForm />
       </motion.div>
 
-      {/* Right Panel: Chat Assistant */}
+      {/* Right Card: Chat Assistant (1/3 width) */}
       <motion.div
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.6, delay: 0.2 }}
-        className=""
+        className="flex-1 glass-panel overflow-hidden flex flex-col"
       >
         <ChatAssistant />
       </motion.div>

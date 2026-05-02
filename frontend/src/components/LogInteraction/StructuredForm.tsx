@@ -1,8 +1,8 @@
 import React from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store';
-import { updateInteraction } from '../../store/interactionSlice';
-import { User, Calendar, Tag, MessageSquare, Briefcase, FileText, CheckCircle, Gift, Sparkles, Mic, Search, Plus, Globe } from 'lucide-react';
+import { setCurrentInteractionId, setSaveState, updateInteraction } from '../../store/interactionSlice';
+import { CheckCircle, Sparkles, Mic, Search, Plus } from 'lucide-react';
 import axios from 'axios';
 
 interface FormFieldProps {
@@ -14,9 +14,22 @@ interface FormFieldProps {
   type?: string;
   placeholder?: string;
   showMic?: boolean;
+  required?: boolean;
+  invalid?: boolean;
 }
 
-const FormField: React.FC<FormFieldProps> = ({ label, value, icon: Icon, field, isTextArea = false, type = 'text', placeholder = "Waiting for AI extraction...", showMic = false }) => {
+const FormField: React.FC<FormFieldProps> = ({
+  label,
+  value,
+  icon: Icon,
+  field,
+  isTextArea = false,
+  type = 'text',
+  placeholder = "Waiting for AI extraction...",
+  showMic = false,
+  required = false,
+  invalid = false,
+}) => {
   const dispatch = useDispatch();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -24,10 +37,11 @@ const FormField: React.FC<FormFieldProps> = ({ label, value, icon: Icon, field, 
   };
 
   return (
-    <div className="flex flex-col gap-2 p-4 glass-panel border-opacity-20 animate-fade-in focus-within:border-white/30 transition-all relative">
+    <div className={`flex flex-col gap-2 p-4 glass-panel border-opacity-20 animate-fade-in focus-within:border-white/30 transition-all relative ${invalid ? 'field-invalid' : ''}`}>
       <div className="flex items-center gap-2 text-xs font-semibold text-secondary uppercase tracking-wider">
         {Icon && <Icon size={14} className="text-secondary" />}
         {label}
+        {required && <span className="field-required">*</span>}
       </div>
       <div className="relative">
         {isTextArea ? (
@@ -56,22 +70,105 @@ const FormField: React.FC<FormFieldProps> = ({ label, value, icon: Icon, field, 
 };
 
 const StructuredForm: React.FC = () => {
-  const { interaction } = useSelector((state: RootState) => state.app);
+  const { interaction, currentInteractionId, saveStatus } = useSelector((state: RootState) => state.app);
   const dispatch = useDispatch();
   const [isSaving, setIsSaving] = React.useState(false);
+  const [lastSavedAt, setLastSavedAt] = React.useState<string>('');
+  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const requiredFieldLabels: Array<{ key: keyof typeof interaction; label: string }> = [
+    { key: 'hcp_name', label: 'HCP Name' },
+    { key: 'interaction_type', label: 'Interaction Type' },
+    { key: 'date', label: 'Date' },
+    { key: 'time', label: 'Time' },
+    { key: 'topics_discussed', label: 'Topics Discussed' },
+  ];
+
+  const missingRequiredLabels = requiredFieldLabels
+    .filter(({ key }) => String(interaction[key] || '').trim().length === 0)
+    .map(({ label }) => label);
+
+  const hasAnyInteractionData = React.useMemo(() => {
+    const hasHcpName = String(interaction.hcp_name || '').trim().length > 0;
+    const otherFields = [
+      interaction.interaction_type,
+      interaction.date,
+      interaction.time,
+      interaction.attendees,
+      interaction.topics_discussed,
+      interaction.materials_shared,
+      interaction.outcomes,
+      interaction.samples_distributed,
+      interaction.follow_up_actions,
+    ];
+    const hasOtherData = otherFields.some((value) => String(value || '').trim().length > 0);
+    return hasHcpName && hasOtherData;
+  }, [interaction]);
+
+  const saveInteraction = React.useCallback(
+    async (manual: boolean) => {
+      if (!hasAnyInteractionData) {
+        return;
+      }
+
+      dispatch(setSaveState({ status: 'saving' }));
+      if (manual) {
+        setIsSaving(true);
+      }
+
+      try {
+        const response = await axios.post('http://localhost:8000/log_interaction', {
+          data: {
+            ...interaction,
+            interaction_id: currentInteractionId ?? undefined,
+          },
+        });
+
+        const savedId = response.data?.interaction_id;
+        if (typeof savedId === 'number') {
+          dispatch(setCurrentInteractionId(savedId));
+        }
+
+        dispatch(setSaveState({ status: 'saved', message: 'Saved' }));
+        setLastSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      } catch (error: any) {
+        const errorDetail =
+          error?.response?.data?.detail ||
+          'Failed to save interaction. Please check backend logs.';
+        console.error('Save error:', errorDetail);
+        dispatch(setSaveState({ status: 'error', message: 'Something went wrong. Please try again.' }));
+      } finally {
+        if (manual) {
+          setIsSaving(false);
+        }
+      }
+    },
+    [currentInteractionId, dispatch, hasAnyInteractionData, interaction]
+  );
 
   const handleManualSave = async () => {
-    setIsSaving(true);
-    try {
-      await axios.post('http://localhost:8000/log_interaction', { data: interaction });
-      alert("Interaction logged successfully!");
-    } catch (error) {
-      console.error("Save error:", error);
-      alert("Failed to save interaction. Check console for details.");
-    } finally {
-      setIsSaving(false);
-    }
+    await saveInteraction(true);
   };
+
+  React.useEffect(() => {
+    if (!hasAnyInteractionData) {
+      return;
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      void saveInteraction(false);
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [interaction, hasAnyInteractionData, saveInteraction]);
 
   const sentimentOptions = [
     { value: 'positive', label: 'Positive', emoji: '😊' },
@@ -95,10 +192,38 @@ const StructuredForm: React.FC = () => {
         </button>
       </div>
 
+      <div className="status-row">
+        <div className={`save-pill ${saveStatus}`}>
+          {saveStatus === 'saving' && 'Saving changes...'}
+          {saveStatus === 'saved' && 'Saved'}
+          {saveStatus === 'error' && 'Save failed'}
+          {saveStatus === 'idle' && 'Ready'}
+        </div>
+        <div className="status-meta">
+          {lastSavedAt && saveStatus !== 'saving' ? `Last saved at ${lastSavedAt}` : 'Auto-save is enabled'}
+        </div>
+      </div>
+
+      <div className="form-helper">
+        {missingRequiredLabels.length > 0
+          ? `Next up: ${missingRequiredLabels.slice(0, 2).join(', ')}${missingRequiredLabels.length > 2 ? '...' : ''}`
+          : 'All key fields are captured. You can review and continue the conversation.'}
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
-        <FormField label="HCP Name" value={interaction.hcp_name} field="hcp_name" placeholder="Search or select HCP..." />
-        <div className="flex flex-col gap-2 p-4 glass-panel border-opacity-20">
-          <div className="flex items-center gap-2 text-xs font-semibold text-secondary uppercase tracking-wider">Interaction Type</div>
+        <FormField
+          label="HCP Name"
+          value={interaction.hcp_name}
+          field="hcp_name"
+          placeholder="Search or select HCP..."
+          required
+          invalid={missingRequiredLabels.includes('HCP Name')}
+        />
+        <div className={`flex flex-col gap-2 p-4 glass-panel border-opacity-20 ${missingRequiredLabels.includes('Interaction Type') ? 'field-invalid' : ''}`}>
+          <div className="flex items-center gap-2 text-xs font-semibold text-secondary uppercase tracking-wider">
+            Interaction Type
+            <span className="field-required">*</span>
+          </div>
           <select 
             value={interaction.interaction_type} 
             onChange={(e) => dispatch(updateInteraction({ interaction_type: e.target.value }))}
@@ -110,15 +235,24 @@ const StructuredForm: React.FC = () => {
             <option value="Lunch">Lunch</option>
           </select>
         </div>
-        <FormField label="Date" value={interaction.date} field="date" type="date" />
-        <FormField label="Time" value={interaction.time} field="time" type="time" />
+        <FormField label="Date" value={interaction.date} field="date" type="date" required invalid={missingRequiredLabels.includes('Date')} />
+        <FormField label="Time" value={interaction.time} field="time" type="time" required invalid={missingRequiredLabels.includes('Time')} />
       </div>
 
       <div className="flex flex-col gap-4">
         <FormField label="Attendees" value={interaction.attendees} field="attendees" placeholder="Enter names or search..." />
         
         <div className="flex flex-col gap-2">
-          <FormField label="Topics Discussed" value={interaction.topics_discussed} field="topics_discussed" isTextArea placeholder="Enter key discussion points..." showMic />
+          <FormField
+            label="Topics Discussed"
+            value={interaction.topics_discussed}
+            field="topics_discussed"
+            isTextArea
+            placeholder="Enter key discussion points..."
+            showMic
+            required
+            invalid={missingRequiredLabels.includes('Topics Discussed')}
+          />
           <button className="flex items-center gap-2 text-xs text-secondary hover:text-white transition-colors w-fit px-1 py-2">
             <Sparkles size={14} className="text-secondary" />
             <span>Summarize from Voice Note (Requires Consent)</span>

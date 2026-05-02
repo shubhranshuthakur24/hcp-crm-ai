@@ -1,6 +1,6 @@
-from typing import Annotated, List, TypedDict, Union, Dict, Any
+from typing import Annotated, List, TypedDict, Any
 import json
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import os
 
@@ -8,9 +8,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_groq import ChatGroq
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import InMemorySaver
+from sqlalchemy import func
 
 from .database import SessionLocal, HCP, Interaction
 
@@ -27,7 +29,7 @@ class InteractionState(BaseModel):
     outcomes: str = ""
     samples_distributed: str = ""
     follow_up_actions: str = ""
-    suggested_follow_ups: List[str] = []
+    suggested_follow_ups: List[str] = Field(default_factory=list)
 
 class AgentState(TypedDict):
     # Use add_messages to ensure history is preserved and appended
@@ -138,10 +140,25 @@ def log_interaction(data: dict):
     """
     db = SessionLocal()
     try:
-        # Find HCP ID by name if not already present
-        hcp = db.query(HCP).filter(HCP.name == data.get("hcp_name")).first()
+        hcp_name = str((data or {}).get("hcp_name", "")).strip()
+        if not hcp_name:
+            return {"error": "Cannot log interaction: hcp_name is required."}
+
+        # Reuse existing HCP if possible; create when missing.
+        hcp = (
+            db.query(HCP)
+            .filter(func.lower(HCP.name) == hcp_name.lower())
+            .first()
+        )
         if not hcp:
-            return {"error": "Cannot log interaction: HCP not found in database."}
+            hcp = HCP(
+                name=hcp_name,
+                specialty="Unknown",
+                organization="Unknown",
+                location="Unknown",
+            )
+            db.add(hcp)
+            db.flush()
 
         new_interaction = Interaction(
             hcp_id=hcp.id,
@@ -189,17 +206,32 @@ def call_model(state: AgentState):
         elif isinstance(msg, HumanMessage):
             break
 
+    missing_required_fields = []
+    required_fields = {
+        "hcp_name": interaction.hcp_name,
+        "interaction_type": interaction.interaction_type,
+        "date": interaction.date,
+        "time": interaction.time,
+        "topics_discussed": interaction.topics_discussed,
+    }
+    for field_name, field_value in required_fields.items():
+        if not str(field_value or "").strip():
+            missing_required_fields.append(field_name)
+
     system_msg = SystemMessage(content=(
         "You are an AI-First CRM Assistant. Your goal is to help log an HCP interaction while being context-aware.\n\n"
         f"CURRENT FORM STATE: {interaction.json()}\n\n"
+        f"MISSING REQUIRED FIELDS: {missing_required_fields}\n\n"
         "PROCESS:\n"
-        "1. If an HCP is identified but you don't have their history, use 'get_hcp_insights' to understand their preferences and past behavior.\n"
-        "2. Capture details using 'edit_interaction' and other tools. IMPORTANT: Format dates as YYYY-MM-DD and times as HH:MM AM/PM.\n"
-        "3. For 'sentiment', map the conversation tone to exactly one of: 'positive', 'neutral', or 'negative'.\n"
-        "4. Capture outcomes and specific follow-up actions (next steps, tasks).\n"
-        "5. ALWAYS suggest 2-3 specific 'suggested_follow_ups' based on the conversation (e.g., '+ Schedule follow-up in 2 weeks', '+ Send PDF'). Use the 'edit_interaction' tool to update this field with a LIST of strings.\n"
-        "6. Once the conversation is finishing, use 'summarize_interaction' to create a final report.\n"
-        "7. Provide a concise summary to the user and stop."
+        "1. Acknowledge what was captured from the latest user message in one short sentence.\n"
+        "2. If an HCP is identified but you don't have their history, use 'get_hcp_insights' to understand preferences and past behavior.\n"
+        "3. Capture details using 'edit_interaction' and other tools. IMPORTANT: Format dates as YYYY-MM-DD and times as HH:MM.\n"
+        "4. Ask conversational follow-up questions for missing fields. Ask at most 1-2 questions per turn.\n"
+        "5. Prioritize asking for: interaction type, where the meeting happened (store in attendees if needed), and brochures/materials shared.\n"
+        "6. For sentiment, map to exactly one of: 'positive', 'neutral', or 'negative'.\n"
+        "7. ALWAYS suggest 2-3 specific 'suggested_follow_ups' based on the conversation (e.g., '+ Schedule follow-up in 2 weeks', '+ Send PDF'). Use the 'edit_interaction' tool to update this field with a LIST of strings.\n"
+        "8. Use 'summarize_interaction' only after required fields are present or the user explicitly says they are done.\n"
+        "9. End each reply with either follow-up question(s) or a concise completion summary."
     ))
     
     response = llm.bind_tools(tools).invoke([system_msg] + state['messages'])
@@ -222,4 +254,6 @@ def route(state: AgentState):
 workflow.add_conditional_edges("agent", route)
 workflow.add_edge("tools", "agent")
 
-agent_app = workflow.compile()
+# Enable per-thread conversation persistence in-process.
+checkpointer = InMemorySaver()
+agent_app = workflow.compile(checkpointer=checkpointer)

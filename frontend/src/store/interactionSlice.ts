@@ -20,6 +20,9 @@ interface AppState {
   interaction: InteractionState;
   chatHistory: { role: 'user' | 'assistant'; content: string }[];
   isTyping: boolean;
+  currentInteractionId: number | null;
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  saveMessage: string;
 }
 
 const initialState: AppState = {
@@ -41,6 +44,9 @@ const initialState: AppState = {
     { role: 'assistant', content: 'Hello! I am your AI CRM Assistant. How can I help you log an HCP interaction today?' }
   ],
   isTyping: false,
+  currentInteractionId: null,
+  saveStatus: 'idle',
+  saveMessage: '',
 };
 
 const interactionSlice = createSlice({
@@ -56,12 +62,32 @@ const interactionSlice = createSlice({
     setTyping: (state, action: PayloadAction<boolean>) => {
       state.isTyping = action.payload;
     },
+    setCurrentInteractionId: (state, action: PayloadAction<number | null>) => {
+      state.currentInteractionId = action.payload;
+    },
+    setSaveState: (
+      state,
+      action: PayloadAction<{ status: AppState['saveStatus']; message?: string }>
+    ) => {
+      state.saveStatus = action.payload.status;
+      state.saveMessage = action.payload.message ?? '';
+    },
     resetInteraction: (state) => {
       state.interaction = initialState.interaction;
       state.chatHistory = initialState.chatHistory;
+      state.currentInteractionId = null;
+      state.saveStatus = 'idle';
+      state.saveMessage = '';
     }
   },
 });
 
-export const { updateInteraction, addChatMessage, setTyping, resetInteraction } = interactionSlice.actions;
+export const {
+  updateInteraction,
+  addChatMessage,
+  setTyping,
+  setCurrentInteractionId,
+  setSaveState,
+  resetInteraction,
+} = interactionSlice.actions;
 export default interactionSlice.reducer;

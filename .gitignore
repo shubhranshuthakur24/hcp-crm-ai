@@ -11,6 +11,7 @@ venv/
 .venv/
 .pytest_cache/
 
+.logs
 # Node
 node_modules/
 dist/
